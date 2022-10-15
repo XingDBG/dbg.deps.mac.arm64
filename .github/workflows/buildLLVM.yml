@@ -1,0 +1,58 @@
+name: MacOS
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - name: Download deps
+        id: downloadDeps
+        working-directory: ${{github.workspace}}
+        run: |
+          wget https://github.com/llvm/llvm-project/releases/download/llvmorg-15.0.2/llvm-project-15.0.2.src.tar.xz -q
+          tar -xJf llvm-project-15.0.2.src.tar.xz
+          ls -laF
+          cd llvm-project-15.0.2.src
+          sed -i '' -e "s/liblldb SHARED/liblldb STATIC/g" lldb/source/API/CMakeLists.txt
+            
+      - name: Setup Ninja
+        run: |
+          brew install ninja
+
+      - name: Make dir
+        working-directory: ${{github.workspace}}
+        run: |
+          mkdir out
+          mkdir build
+
+      - name: Build lldb
+        working-directory: ${{github.workspace}}/build
+        run: |
+          mkdir lldb
+          cd lldb
+          set CXXFLAGS="/DLLDB_API="
+          cmake -G Ninja -DCMAKE_INSTALL_PREFIX=${{github.workspace}}/out/lldb -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_PROJECTS="clang;lldb" -DLLDB_INCLUDE_TESTS=OFF -DLLDB_TOOL_LLDB_VSCODE_BUILD=OFF -DCLANG_INCLUDE_DOCS=OFF -DCLANG_INCLUDE_TESTS=OFF -DBENCHMARK_INSTALL_DOCS=OFF -DLLVM_INCLUDE_BENCHMARKS=OFF -DLLVM_INCLUDE_DOCS=OFF -DLLVM_INCLUDE_EXAMPLES=OFF -DLLVM_INCLUDE_RUNTIMES=OFF -DLLVM_INCLUDE_TESTS=OFF -DLLDB_ENABLE_LUA=OFF -DLLDB_ENABLE_PYTHON=OFF -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" ${{github.workspace}}/llvm-project-15.0.2.src/llvm
+          cmake --build . --parallel
+          ninja install
+          cp -f ${{github.workspace}}/build/lldb/lib/*.a ${{github.workspace}}/out/lldb/lib/
+          cd ${{github.workspace}}/build
+          rm -rf lldb
+
+      - name: Pack files
+        working-directory: ${{github.workspace}}/out
+        run: |
+          tar -cJf lldb.tar.xz lldb
+
+      - uses: actions/upload-artifact@v2
+        with:
+          path: ${{github.workspace}}/out/*.tar.xz
+
+      - uses: xresloader/upload-to-github-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          file: "out/*.tar.xz"
+          overwrite: true
+          tags: true
+          draft: false
